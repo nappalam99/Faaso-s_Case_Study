@@ -1,0 +1,159 @@
+1. How many roles where ordered?
+
+select roll_id,count(roll_id) 
+from customer_orders;
+
+2. How many unique customer orders were made?
+
+select distinct(order_id) 
+from customer_orders 
+order by order_id asc;
+
+3. How many successful order where delivered by each driver ?
+
+select driver_id,count(cancellation) total_order_deliverd
+from driver_order 
+where cancellation not in('Cancellation','Customer Cancellation')
+group by driver_id
+order by driver_id;
+
+4. How many of each type of roll was delivered?
+
+select r.roll_id,r.roll_name,count(*) as total_roll_deliverd
+from customer_orders as co
+join rolls as r on co.roll_id = r.roll_id
+join driver_order as od on od.order_id = co.order_id
+where od.cancellation not in('Cancellation','Customer Cancellation')
+group by r.roll_id,r.roll_name
+order by r.roll_id asc;
+
+5. how many veg and non veg rolls were ordered by each customer ?
+
+select co.customer_id,count(r.roll_id)
+from customer_orders as co
+join rolls as r on co.roll_id = r.roll_id
+group by co.customer_id
+order by  co.customer_id;
+
+6. What was the maximum number of rolls deliverd in a single order ?
+
+select od.order_id,count(od.order_id) as max_orders
+from driver_order as od
+join customer_orders as co
+on od.order_id = co.order_id
+where cancellation not in ('Cancellation','Customer Cancellation')
+group by od.order_id
+order by max_orders desc
+limit 1
+
+7. How many rules where delivered that had both exclusion and extras ?
+
+select * from customer_orders;
+select * from driver_order;
+
+with temp_customer_orders as
+(select 
+ order_id,
+ customer_id ,
+ roll_id,
+ case 
+     when not_include_items is null or not_include_items = '' then '0'
+     else not_include_items 
+ end  as new_not_include_items,
+ case 
+     when extra_items_included is null or extra_items_included in ('NaN','') then '0'
+     else extra_items_included
+ end as new_extra_items_included,
+ order_date
+ from customer_orders
+ )
+select tp.customer_id ,tp.new_not_include_items,tp.new_extra_items_included,count(tp.customer_id) as both_include_and_exclude
+from temp_customer_orders as tp
+join driver_order as od on od.order_id = tp.order_id
+where new_not_include_items <> '0' and new_extra_items_included > '0' and (od.cancellation is null or od.cancellation = 'NaN')
+group by tp.customer_id,tp.new_not_include_items,tp.new_extra_items_included
+
+8. What was the total number of rules ordered for each hour of the day ?
+
+select 
+  extract(hour from order_date) as per_hour,
+  sum(case
+     when roll_id = 1 then 1 else 1
+  end) as total_order
+from customer_orders
+group by extract(hour from order_date)
+order by per_hour asc
+
+9. What was the number of order for each day of week ?
+ 
+with cte as
+(select 
+   to_char(order_date,'Day') as day_in_week,
+   count(order_id)
+from customer_orders
+group by extract(day from order_date),order_date)
+
+select day_in_week,count(count) from cte
+group by day_in_week
+
+10. What was the average time in minute it took for each driver to arrive at the fassos HQ to pick up the order ?
+
+SELECT 
+   round(avg(case 
+                when duration is null then '0'
+	        else substring(duration FROM 1 FOR 2)::int
+	  end)) as AVG_time
+FROM driver_order;
+
+11. Is there any relationship between the number of rolls and how it's take to prepare ?
+
+with cte as (SELECT co.order_id,co.roll_id,EXTRACT(minute FROM (od.pickup_time - co.order_date)) min_diff
+--    (case when od.pickup_time is null then '0' else od.pickup_time end) as not_null
+FROM customer_orders as co
+join driver_order as od
+on co.order_id = od.order_id)
+select order_id,count(roll_id),
+   round(sum((case when min_diff is null then 0 else min_diff end))/count((case when roll_id = 1 then 1 else 1 end))) as count_roll_id
+from cte 
+group by order_id
+order by order_id
+
+12. What was the average distance travelled for each customer ?
+
+with cte as(select co.customer_id,distance,
+  substring(distance from 1 for 2)::int as new_distance
+from customer_orders as co
+join driver_order as od on co.order_id = od.order_id)
+select 
+customer_id,
+round(avg(case when new_distance is null then 0 else new_distance end)) as avg_distance
+from cte
+group by customer_id
+
+13. What was the difference between the longest and the shortest delivery times for all orders ?
+
+with cte as(select 
+order_id,
+substring(duration from 1 for 2):: int as new_duration 
+from driver_order)
+select 
+(max(new_duration)over()- min(new_duration)over()) as diff_in_interval
+from cte
+limit 1
+
+14. What was the average speed for each driver for each delivery and do you notice any trend for these values?
+
+with cte as (select
+order_id,driver_id,
+substring(distance from 1 for 2)::numeric as new_distance,
+substring(duration from 1 for 2)::numeric as new_duration
+from driver_order
+where distance is not null and duration is not null)
+select driver_id,round(avg((new_distance/new_duration)*60)) as avg_delivery_time_per_hour
+from cte
+group by driver_id
+order by driver_id
+
+trend the person who had driver_id 3 is a faster deliver
+
+
